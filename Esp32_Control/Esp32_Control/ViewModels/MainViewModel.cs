@@ -1,47 +1,23 @@
-﻿
-using Websocket.Client;
 
+using System;
+using System.Windows.Input;
+using CommunityToolkit.Mvvm.Input;
 
 namespace Esp32_Control.ViewModels;
 
 public partial class MainViewModel : ViewModelBase
 {    
-    //private WebsocketClient? _client;
-
-    private string _address;
-    public string Address
-    {
-        get => _address;
-        set
-        {
-            if (value != null)
-            {
-                _address = value;
-                _store.Address = _address;
-            }
-        }
-    }
-
-    private string _status;
-    public string Status
-    {
-        get => _status;
-        set
-        {
-            if (value != null)
-            {
-                _status = value;
-                _store.Status = _status;
-
-            }
-        }
-    } 
+    public ICommand AddDeviceCommand { get; }
 
     public MainViewModel(
         Store store
     ):base(store)
     {
-        _status = "Disconnected";
-        _address = "123";
+        AddDeviceCommand = new RelayCommand(addDevice);
+    }
+
+    void addDevice()
+    {
+        Console.WriteLine("test");
     }
 }
