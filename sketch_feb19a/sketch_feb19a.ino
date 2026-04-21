@@ -1,6 +1,12 @@
 #include <U8g2lib.h>
-#include <DHT11.h>      
+#include <DHT22.h>      
 #include <string>
+
+#define TR0 10000   // Ω
+#define R   10000
+#define B   3970  
+#define VCC 3.3    //Supply  voltage
+#define THERMISTOR A1
 
 #define UPDATE_PERIOD 1000
 #define FUNCTION_PERIOD 10
@@ -22,17 +28,18 @@
 // OLED constructor
 U8G2_SSD1306_72X40_ER_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE, 6, 5);
 
-DHT11 dht11(20);
+DHT22 dht22(20);
 unsigned long updateTimer = 0;
 unsigned long functionTimer = 0;
 
 uint8_t fan1Speed = 10;
 uint8_t fan2Speed = 10;
 uint8_t tecPWM = 0;
-int setTemp = 0;
-int currentTemp = 0;
-int currentHumidity = 0;
-int err = 0;
+float setTemp = 0.0f;
+float currentTemp = 0.0f;
+float currentHumidity = 0.0f;
+float thermTemp = 0.0f;
+const float T0 = 30 + 273.15; 
 
 volatile bool canSetButton = true;
 volatile bool canSetInterrupt = true;
@@ -70,6 +77,21 @@ bool debounceButtons(uint8_t btn, uint8_t isHigh) {
   return false;
 }
 
+void readThermisor() {
+  int raw = analogRead(THERMISTOR);
+
+  if (raw <= 0 || raw >= 4095) {
+    return;
+  }
+
+  float thermVoltage = (VCC / 4095.0) * raw;
+  float thermResistance = R * (thermVoltage / (VCC - thermVoltage));
+
+  thermTemp = 1.0 / ((1.0 / T0) + (log(thermResistance / TR0) / B));
+
+  thermTemp = thermTemp - 273.15;
+}
+
 void showTemp(){
   u8g2.clearBuffer();
 
@@ -81,23 +103,23 @@ void showTemp(){
   u8g2.setCursor(6, 22);
   u8g2.print(currentTemp, 1);
   u8g2.print(" ");
-  u8g2.print((char)176);   // ° symbol
-  u8g2.print("C");
+  u8g2.print(thermTemp, 1);
 
   u8g2.setCursor(6, 38);
   u8g2.print(currentHumidity, 1);
-  u8g2.print(" %  RH");
+  u8g2.print(" %RH");
 
   u8g2.sendBuffer();
 }
 
-void showInfo(std::string text, uint8_t num, uint8_t data, uint8_t data2=0) {
+void showTempInfo(std::string text, uint8_t num, float data, float data2 = 0) {
     u8g2.clearBuffer();
     u8g2.setFont(u8g2_font_5x8_tf);
     u8g2.setCursor(4, 8);
     u8g2.print(text.c_str());   
     u8g2.print(' ');
     u8g2.print(num);
+
     u8g2.setFont(u8g2_font_7x14_tf);
     u8g2.setCursor(6, 22);
     u8g2.print(data);
@@ -105,6 +127,20 @@ void showInfo(std::string text, uint8_t num, uint8_t data, uint8_t data2=0) {
       u8g2.print('/');
       u8g2.print(data2);
     }
+    u8g2.sendBuffer();
+}
+
+void showFanInfo(std::string text, uint8_t num, uint8_t data) {
+    u8g2.clearBuffer();
+    u8g2.setFont(u8g2_font_5x8_tf);
+    u8g2.setCursor(4, 8);
+    u8g2.print(text.c_str());   
+    u8g2.print(' ');
+    u8g2.print(num);
+
+    u8g2.setFont(u8g2_font_7x14_tf);
+    u8g2.setCursor(6, 22);
+    u8g2.print(data);
     u8g2.sendBuffer();
 }
 
@@ -156,6 +192,8 @@ void setFan(int8_t value, uint8_t fan, uint8_t* fanSpeed) {
 }
 
 void setup(void) {
+
+  Serial.begin(9600);
   pinMode(BUTTON1, INPUT_PULLUP);
   pinMode(BUTTON2, INPUT_PULLUP);
   pinMode(BUTTON3, INPUT_PULLUP);
@@ -164,6 +202,7 @@ void setup(void) {
   pinMode(FAN_ENABLE, OUTPUT);
   pinMode(TEC_ENABLE, OUTPUT);
   pinMode(FAN1, OUTPUT);
+  pinMode(FAN2, OUTPUT);
   pinMode(FAN2, OUTPUT);
 
   digitalWrite(FAN_ENABLE, HIGH);
@@ -191,6 +230,7 @@ void loop(void) {
 
   if (now - functionTimer >= FUNCTION_PERIOD) {
     functionTimer = now;
+    uint8_t err = dht22.getLastError();
     if (err != 0) {
       showError(err);
       return;
@@ -208,7 +248,7 @@ void loop(void) {
       }
       case 1: {
         if(modeIndex == 0) {
-          showInfo("Current Fan", 1, fan1Speed);
+          showFanInfo("Current Fan", 1, fan1Speed);
         }
 
         if(modeIndex == 1) {
@@ -218,14 +258,14 @@ void loop(void) {
           if (debounceButtons(BUTTON4, digitalRead(BUTTON4))) {
             setFan(-1, FAN1, &fan1Speed);
           } 
-          showInfo("Set Fan", 1, fan1Speed);
+          showFanInfo("Set Fan", 1, fan1Speed);
         }
 
         break;
       }    
       case 2: {
         if(modeIndex == 0) {
-          showInfo("Current Fan", 2, fan2Speed);
+          showFanInfo("Current Fan", 2, fan2Speed);
         }
 
         if(modeIndex == 1) {
@@ -235,14 +275,14 @@ void loop(void) {
           if (debounceButtons(BUTTON4, digitalRead(BUTTON4))) {
             setFan(-1, FAN2, &fan2Speed);
           } 
-          showInfo("Set Fan", 2, fan2Speed);
+          showFanInfo("Set Fan", 2, fan2Speed);
         }
 
         break;
       }
       case 3: {
         if(modeIndex == 0) {
-          showInfo("Current Temp", 1, currentTemp, setTemp);
+          showTempInfo("Current Temp", 1, currentTemp, setTemp);
         }
 
         if(modeIndex == 1) {
@@ -253,7 +293,7 @@ void loop(void) {
             setTemp-=1;
           } 
           setTemp = constrain(setTemp, -10, 30);
-          showInfo("Set Temp", 1, setTemp);
+          showTempInfo("Set Temp", 1, setTemp);
         }
         
         break;
@@ -263,6 +303,8 @@ void loop(void) {
 
   if (now - updateTimer >= UPDATE_PERIOD) {
     updateTimer = now;
-    err = dht11.readTemperatureHumidity(currentTemp, currentHumidity);  
+    currentTemp = dht22.getTemperature();
+    currentHumidity = dht22.getHumidity();
+    readThermisor();
   }
 }
